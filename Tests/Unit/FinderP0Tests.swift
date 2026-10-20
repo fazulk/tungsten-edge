@@ -881,13 +881,14 @@ final class FinderP0Tests: XCTestCase {
         )
     }
 
-    func testWindowEligibilityFiltersTaskbarSelfAppWindows() {
+    func testWindowEligibilityFiltersTaskbarSelfAppWindows() throws {
         let policy = DockWindowEligibilityPolicy()
+        let bundleIdentifier = try XCTUnwrap(Bundle.main.bundleIdentifier)
 
         XCTAssertEqual(
             policy.evaluate(
                 candidate(
-                    bundleIdentifier: DockWindowEligibilityPolicy.selfBundleIdentifier,
+                    bundleIdentifier: bundleIdentifier,
                     appName: "任务条调试台",
                     title: "任务条调试台",
                     activationPolicy: .regular,
@@ -896,6 +897,36 @@ final class FinderP0Tests: XCTestCase {
             ),
             .filter
         )
+    }
+
+    func testPlatformActionExecutorRejectsSelfTargetsFromStaleSnapshots() {
+        let executor = PlatformActionExecutor()
+        let actions: [PlatformActionRequest.ActionKind] = [
+            .activateWindow, .minimizeWindow, .closeWindow, .hideApp, .quitApp, .newWindow
+        ]
+
+        for rawID in ["app-self", "cg-self"] {
+            let id = WindowID(rawValue: rawID)
+            let record = WindowRecord(
+                id: id,
+                appID: AppID(rawValue: "self"),
+                pid: ProcessInfo.processInfo.processIdentifier,
+                bundleIdentifier: Bundle.main.bundleIdentifier,
+                title: "Settings",
+                bounds: nil,
+                status: .inactive
+            )
+            let snapshot = DockSnapshot(windows: [id: record], orderedWindowIDs: [id])
+
+            for action in actions {
+                XCTAssertFalse(executor.execute(
+                    PlatformActionRequest(kind: action, windowID: id),
+                    snapshot: snapshot,
+                    forcedMinimizedPrior: false,
+                    onHandoffActivePrediction: nil
+                ), "Self-targeted \(action) must be rejected for \(rawID)")
+            }
+        }
     }
 
     func testAXTaskbarWindowRulesKeepsStandardWindows() {

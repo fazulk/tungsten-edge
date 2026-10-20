@@ -941,6 +941,8 @@ struct PlatformActionExecutor {
               let record = snapshot.windows[windowID] else {
             return false
         }
+        // Self-targeted AX actions enter AppKit on this background queue and can crash.
+        guard record.pid != ProcessInfo.processInfo.processIdentifier else { return false }
         // 沉降门先验(v2,2026-08-25):门层刚对该窗口派发过 minimize(priorWindow 内)。
         // 只作**肯定**信号合成进 knownMinimized——真最小化走实测锁死的 v3 还原序;其实没
         // 最小化时 unminimize 是无害空操作 + 正常聚焦。绝不反向使用(affirmative-only)。

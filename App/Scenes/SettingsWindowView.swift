@@ -608,9 +608,15 @@ struct SettingsWindowContent: View {
 
     private var aboutVersionRow: some View {
         HStack(spacing: 12) {
-            if let versionTitle = coordinator.versionTitle {
-                Text(versionTitle)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                if Bundle.main.bundleIdentifier == "com.fazulk.tungstenedge.fork" {
+                    Text(verbatim: "Tungsten Edge Fork")
+                        .font(.headline)
+                }
+                if let versionTitle = coordinator.versionTitle {
+                    Text(versionTitle)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             // Sparkle 自带结果界面（有新版 / 已是最新 / 查不到），所以这里不再接

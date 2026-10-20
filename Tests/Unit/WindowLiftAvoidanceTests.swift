@@ -335,7 +335,29 @@ final class WindowLiftAvoidanceTests: XCTestCase {
         XCTAssertEqual(observe(CGRect(x: 190, y: 115, width: 1360, height: 825)), .late)
     }
 
-    func testSuppressionReleasesOnANewEligibleFrameOnlyInTheUserEra() {
+    func testInterruptedSnapDoesNotSuppressMagnetMaximize() throws {
+        let native = CGRect(x: 960, y: 0, width: 960, height: 1050)
+        let target = try XCTUnwrap(tileGeometry.liftTargetFrame(for: native, includesTiles: true))
+        let decision = WindowLiftAvoidance.animationWriteFailureDecision(
+            .initialFrameMismatch(actualFrame: leftHalf),
+            nativeFrame: native,
+            targetFrame: target,
+            reliftCount: 0,
+            lastAcknowledgedFrame: native
+        )
+        XCTAssertEqual(decision, .clearSession(preservingFrame: leftHalf))
+
+        for frame in [leftHalf, tileGeometry.visibleFrame] {
+            XCTAssertTrue(tileGeometry.suppressionReleasesOnNewFrame(
+                frame,
+                suppressedNative: native,
+                userEra: false,
+                includesTiles: true
+            ))
+        }
+    }
+
+    func testSuppressionReleasesOnANewLayoutOrUserEraMarginChange() {
         let full = tileGeometry.visibleFrame
         func releases(_ frame: CGRect, native: CGRect, userEra: Bool = true, tiles: Bool = true) -> Bool {
             tileGeometry.suppressionReleasesOnNewFrame(
@@ -352,15 +374,26 @@ final class WindowLiftAvoidanceTests: XCTestCase {
         XCTAssertTrue(releases(leftHalf, native: full))
         XCTAssertTrue(releases(leftHalfWithMargins, native: leftHalf))
 
-        // An app's or a window manager's reaction keeps the exact-native rule.
-        XCTAssertFalse(releases(rightHalf, native: leftHalf, userEra: false))
+        // A different layout releases even if it interrupted a write; small margin changes wait.
+        XCTAssertTrue(releases(rightHalf, native: leftHalf, userEra: false))
+        XCTAssertTrue(releases(full, native: leftHalf, userEra: false))
+        XCTAssertTrue(releases(leftHalf, native: full, userEra: false))
+        XCTAssertTrue(releases(full, native: CGRect(x: 0, y: 0, width: 1920, height: 525), userEra: false))
         XCTAssertFalse(releases(leftHalfWithMargins, native: leftHalf, userEra: false))
+
+        // Our lift keeps top, left and right fixed. Reasserting its bottom cannot unlock retries.
+        XCTAssertFalse(releases(CGRect(x: 0, y: 10, width: 960, height: 1040), native: leftHalf, userEra: false))
 
         // Maximized → maximized stays on the old path even when the two frames sit on opposite
         // sides of the detection band.
         XCTAssertFalse(releases(
             CGRect(x: -12, y: 0, width: 1944, height: 1050),
             native: CGRect(x: 12, y: 0, width: 1896, height: 1050)
+        ))
+        XCTAssertFalse(releases(
+            CGRect(x: -12, y: 0, width: 1944, height: 1050),
+            native: CGRect(x: 12, y: 0, width: 1896, height: 1050),
+            userEra: false
         ))
 
         // Not eligible, or the kill switch is off.

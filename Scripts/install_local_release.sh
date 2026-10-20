@@ -24,15 +24,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT="$ROOT/macos-dock-cc-v2.xcodeproj"
 SCHEME="macos-dock-cc-v2"
 BUILT_NAME="macos-dock-cc-v2"
-APP_NAME="Tungsten Edge"
+APP_NAME="${TUNGSTEN_APP_NAME:-Tungsten Edge}"
+BUNDLE_ID="${TUNGSTEN_BUNDLE_ID:-com.caye.macosdockcc.v2}"
 DEST="/Applications/$APP_NAME.app"
 ENTITLEMENTS="$ROOT/Resources/TungstenEdge.entitlements"
-DD="$ROOT/build/LocalReleaseDD"
+DD="${TUNGSTEN_DERIVED_DATA:-$ROOT/build/LocalReleaseDD}"
 PRODUCTS="$DD/Build/Products/Release"
 
 DEVELOPER_ID="${DEVELOPER_ID_APPLICATION:-Developer ID Application: Suzhou Mubai Creativity Design Co., Ltd. (DRPT2MJQD5)}"
 FALLBACK_IDENTITY="macos-dock-cc Local Code Signing"
 
+[[ -n "$APP_NAME" && "$APP_NAME" != */* && "$APP_NAME" != "." && "$APP_NAME" != ".." ]] \
+  || { echo "error: APP_NAME must be a single app name" >&2; exit 1; }
 [[ -f "$ENTITLEMENTS" ]] || { echo "error: 找不到 entitlements：$ENTITLEMENTS" >&2; exit 1; }
 
 # strip_release_binary / verify_release_binary, shared with package_release.sh.
@@ -43,7 +46,7 @@ source "$ROOT/Scripts/lib/release_binary.sh"
 IDENTITIES="$(security find-identity -v -p codesigning 2>&1)"
 if grep -Fq "\"$DEVELOPER_ID\"" <<<"$IDENTITIES"; then
   IDENTITY="$DEVELOPER_ID"
-elif grep -Fq "\"$FALLBACK_IDENTITY\"" <<<"$IDENTITIES"; then
+elif [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]] && grep -Fq "\"$FALLBACK_IDENTITY\"" <<<"$IDENTITIES"; then
   IDENTITY="$FALLBACK_IDENTITY"
   echo "warning: 没找到 Developer ID 证书，回退到「${FALLBACK_IDENTITY}」。" >&2
   echo "         装出来的包与发布包身份不同，辅助功能授权会和发布包互相作废。" >&2
@@ -56,10 +59,13 @@ fi
 
 echo "==> 构建 Release…"
 # Same arch and coverage settings as package_release.sh (see Scripts/lib/release_binary.sh).
+# Force the universal executable to be regenerated after test builds relink its per-arch inputs.
+rm -f "$PRODUCTS/$BUILT_NAME.app/Contents/MacOS/$BUILT_NAME"
 xcodebuild -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
   -derivedDataPath "$DD" \
   ARCHS="x86_64 arm64" ONLY_ACTIVE_ARCH=NO \
-  CLANG_COVERAGE_MAPPING=NO \
+  CLANG_COVERAGE_MAPPING=NO CODE_SIGNING_ALLOWED=NO \
+  PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
   build >/tmp/tungsten-local-install.log 2>&1
 echo "    ok"
 
@@ -120,13 +126,28 @@ grep -q 'com.apple.security.automation.apple-events' <<<"$SIGNED_ENTS" \
 SIGNED_INFO="$(codesign -dvvv "$APP" 2>&1 || true)"
 grep -q 'flags=.*runtime' <<<"$SIGNED_INFO" \
   || { echo "error: 签名后的 app 没有 hardened runtime 标志" >&2; exit 1; }
+codesign --verify --deep --strict "$APP"
+
+installed_pids() {
+  local pid executable
+  for pid in $(pgrep -x "$BUILT_NAME" || true); do
+    executable="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+    if [[ "$executable" == "$DEST/Contents/MacOS/$BUILT_NAME" ]]; then
+      printf '%s\n' "$pid"
+    fi
+  done
+}
 
 echo "==> 退出正在运行的实例…"
-pkill -x "$BUILT_NAME" >/dev/null 2>&1 || true
+for pid in $(installed_pids); do
+  kill -TERM "$pid"
+done
 for _ in $(seq 1 25); do
-  pgrep -x "$BUILT_NAME" >/dev/null 2>&1 || break
+  [[ -n "$(installed_pids)" ]] || break
   sleep 0.2
 done
+[[ -z "$(installed_pids)" ]] \
+  || { echo "error: installed app did not exit; leaving it unchanged" >&2; exit 1; }
 
 # 注意花括号：紧跟其后的省略号是多字节字符，写成 $DEST… 会被当成变量名的一部分，
 # 在 set -u 下直接报 unbound variable。

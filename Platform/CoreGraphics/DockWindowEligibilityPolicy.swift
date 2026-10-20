@@ -4,7 +4,7 @@ import CoreGraphics
 import Foundation
 
 struct DockWindowEligibilityPolicy {
-    static let selfBundleIdentifier = "com.caye.macosdockcc.v2"
+    static let selfBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.caye.macosdockcc.v2"
 
     enum Decision: Equatable {
         case keep

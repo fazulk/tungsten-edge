@@ -184,21 +184,22 @@ enum WindowLiftAvoidance {
             )
         }
 
-        /// A suppressed window shows a frame that is not its old native one: may it start a fresh
-        /// lift? A tile's native frame is not unique (left half → right half, a margin toggle), so
-        /// "wait for the exact native frame" alone would leave a re-tiled window under the taskbar
-        /// for good. Released only when the external frame that cleared the session was the user's
-        /// (`externalFrameIsUserEra`), the new frame is eligible, and it is not maximized → maximized
-        /// (that pair keeps the exact-native rule it always had).
+        /// A lift changes only the bottom edge. A different left, right or top edge identifies a
+        /// new snap layout, even when it interrupted our write. Bottom-only and small margin
+        /// changes still require the user era; maximized → maximized keeps the exact-native rule.
         func suppressionReleasesOnNewFrame(
             _ frame: CGRect,
             suppressedNative: CGRect,
             userEra: Bool,
             includesTiles: Bool
         ) -> Bool {
-            guard includesTiles, userEra, isLiftEligible(frame, includesTiles: true) else {
+            guard includesTiles, isLiftEligible(frame, includesTiles: true) else {
                 return false
             }
+            let layoutChanged = abs(frame.minX - suppressedNative.minX) > WindowLiftAvoidance.detectionTolerance
+                || abs(frame.maxX - suppressedNative.maxX) > WindowLiftAvoidance.detectionTolerance
+                || abs(frame.maxY - suppressedNative.maxY) > WindowLiftAvoidance.detectionTolerance
+            guard userEra || layoutChanged else { return false }
             return !(fillsVisibleFrame(suppressedNative) && fillsVisibleFrame(frame))
         }
 
